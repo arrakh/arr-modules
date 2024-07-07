@@ -19,7 +19,7 @@ namespace Arr.ModulesSystem
                 var type = module.GetType();
                 if (this.modules.ContainsKey(type))
                 {
-#if ARR_SUPPRESS_EXCEPTIONS
+#if ARR_SHOW_EXCEPTIONS
                     throw new Exception($"Trying to add duplicate instance of type {type.Name}");
 #endif
                     continue;
@@ -47,7 +47,7 @@ namespace Arr.ModulesSystem
 
         private void InjectDependencies(Type moduleType, IModule instance)
         {
-            var fields = moduleType.GetFields();
+            var fields = moduleType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
             foreach (var field in fields)
             {
@@ -57,7 +57,7 @@ namespace Arr.ModulesSystem
 
                 if (!typeof(IModule).IsAssignableFrom(type))
                 {
-#if ARR_SUPPRESS_EXCEPTIONS
+#if ARR_SHOW_EXCEPTIONS
                     throw new Exception($"Trying to inject type {type.Name} but it is not a Module!");
 #endif
                     continue;
@@ -65,7 +65,7 @@ namespace Arr.ModulesSystem
                 
                 if (!modules.TryGetValue(type, out var module))
                 {
-#if ARR_SUPPRESS_EXCEPTIONS
+#if ARR_SHOW_EXCEPTIONS
                     throw new Exception($"Trying to inject type {type.Name} but could not find the Module!");
 #endif
                     continue;
