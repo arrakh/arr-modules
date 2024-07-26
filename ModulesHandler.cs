@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using EventHandler = Arr.EventsSystem.EventHandler;
@@ -14,25 +15,39 @@ namespace Arr.ModulesSystem
         public ModulesHandler(IEnumerable<IModule> modules, EventHandler eventHandler)
         {
             this.modules = new();
-            foreach (var module in modules)
+            this.eventHandler = eventHandler;
+
+            foreach (var module in modules) RegisterModule(module);
+        }
+
+        private void RegisterModule(IModule module)
+        {
+            if (module is ModuleGroup group)
             {
-                var type = module.GetType();
-                if (this.modules.ContainsKey(type))
-                {
-#if ARR_SHOW_EXCEPTIONS
-                    throw new Exception($"Trying to add duplicate instance of type {type.Name}");
-#endif
-                    continue;
-                }
-                this.modules[type] = module;
+                foreach (var m in group.Modules) RegisterModule(m);
+                return;
             }
             
-            this.eventHandler = eventHandler;
+            var type = module.GetType();
+            
+            if (modules.ContainsKey(type))
+            {
+#if ARR_SHOW_EXCEPTIONS
+                throw new Exception($"Trying to add duplicate instance of type {type.Name}");
+#endif
+                return;
+            }
+            
+            modules[type] = module;
         }
 
         public async Task Start()
         {
-            foreach (var module in modules.Values)
+            //Order module in ascending manner, where if it is not IOrderedModule it will have an order of 0
+            var orderedModules = modules.Values
+                .OrderBy(x => x is IOrderedModule ordered ? ordered.Order : 0).ToList();
+            
+            foreach (var module in orderedModules)
             {
                 eventHandler.RegisterMultiple(module);
                 await module.Initialize();
@@ -41,7 +56,7 @@ namespace Arr.ModulesSystem
             foreach (var pair in modules)
                 InjectDependencies(pair.Key, pair.Value);
 
-            foreach (var module in modules.Values)
+            foreach (var module in orderedModules)
                 await module.Load();
         }
 
@@ -78,7 +93,11 @@ namespace Arr.ModulesSystem
 
         public async Task Stop()
         {
-            foreach (var module in modules.Values)
+            //Order module in descending manner, where if it is not IOrderedModule it will have an order of 0
+            var orderedModules = modules.Values
+                .OrderByDescending(x => x is IOrderedModule ordered ? ordered.Order : 0).ToList();
+            
+            foreach (var module in orderedModules)
             {
                 eventHandler.UnregisterMultiple(module);
                 await module.Unload();
