@@ -10,12 +10,24 @@ namespace Arr.ModulesSystem
     public class ModulesHandler
     {
         private Dictionary<Type, IModule> modules;
+        private List<IModule> initializedModules;
+        private List<IModule> loadedModules;
         private EventHandler eventHandler;
+
+        private IExternalModulesProvider externalModulesProvider = null;
+
+        public ModulesHandler(IEnumerable<IModule> modules, EventHandler eventHandler,
+            IExternalModulesProvider externalModulesProvider) : this(modules, eventHandler)
+        {
+            this.externalModulesProvider = externalModulesProvider;
+        }
 
         public ModulesHandler(IEnumerable<IModule> modules, EventHandler eventHandler)
         {
             this.modules = new();
             this.eventHandler = eventHandler;
+            initializedModules = new();
+            loadedModules = new();
 
             foreach (var module in modules) RegisterModule(module);
         }
@@ -41,6 +53,8 @@ namespace Arr.ModulesSystem
             modules[type] = module;
         }
 
+        public bool TryGetModule(Type type, out IModule module) => modules.TryGetValue(type, out module);
+
         public async Task Start()
         {
             //Order module in ascending manner, where if it is not IOrderedModule it will have an order of 0
@@ -51,13 +65,17 @@ namespace Arr.ModulesSystem
             {
                 eventHandler.RegisterMultiple(module);
                 await module.Initialize();
+                initializedModules.Add(module);
             }
 
             foreach (var pair in modules)
                 InjectDependencies(pair.Key, pair.Value);
 
             foreach (var module in orderedModules)
+            {
                 await module.Load();
+                loadedModules.Add(module);
+            }
         }
 
         private void InjectDependencies(Type moduleType, IModule instance)
@@ -80,10 +98,13 @@ namespace Arr.ModulesSystem
                 
                 if (!modules.TryGetValue(type, out var module))
                 {
+                    if (externalModulesProvider == null || !externalModulesProvider.TryGetModule(type, out module))
+                    {
 #if ARR_SHOW_EXCEPTIONS
-                    throw new Exception($"Trying to inject type {type.Name} but could not find the Module!");
+                        throw new Exception($"Trying to inject type {type.Name} but could not find the Module!");
 #endif
-                    continue;
+                        continue;
+                    }
                 }
                 
                 TypedReference tr = __makeref(instance);
@@ -94,14 +115,15 @@ namespace Arr.ModulesSystem
         public async Task Stop()
         {
             //Order module in descending manner, where if it is not IOrderedModule it will have an order of 0
-            var orderedModules = modules.Values
+            var orderedModules = initializedModules
                 .OrderByDescending(x => x is IOrderedModule ordered ? ordered.Order : 0).ToList();
             
-            foreach (var module in orderedModules)
-            {
-                eventHandler.UnregisterMultiple(module);
-                await module.Unload();
-            }
+            foreach (var module in orderedModules) eventHandler.UnregisterMultiple(module);
+            
+            orderedModules = loadedModules
+                .OrderByDescending(x => x is IOrderedModule ordered ? ordered.Order : 0).ToList();
+
+            foreach (var module in orderedModules) await module.Unload();
         }
     }
 }
